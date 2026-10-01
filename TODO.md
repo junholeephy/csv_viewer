@@ -87,14 +87,16 @@ python src/run.py --data <실데이터> --limit 1000           # ② 스키마 �
 
 ```bash
 source <venv>/bin/activate            # ⚠ 뷰어는 paths.venv 로 갈아타지 않는다 — 직접 켠다
-streamlit run <프로그램>/src/app.py --server.address localhost -- --root <데이터 디렉터리>
+streamlit run <프로그램>/src/app.py --server.address localhost
 ```
 
 - **venv 를 반드시 직접 켠다.** `src/run.py` 의 venv 전환은 `streamlit run` 경로에는
   걸리지 않는다. 다른 venv 로 뜨면 실패가 아니라 `ModuleNotFoundError` 나 다른 버전으로 돈다
 - **`--server.address localhost` 를 빼지 마라.** 빼면 같은 네트워크의 누구나 실데이터를
   본다. 반복해서 띄우면 3번의 실행 스크립트에 이 줄을 박는다
-- `--root` 아래의 `.csv` `.tsv` `.txt` 만 고를 수 있다. 그 밖의 경로는 열리지 않는다
+- 볼 파일은 **작업 폴더의 `csv_files/`** 에 둔다 (처음 실행하면 만들어진다). 다른 폴더는
+  끝에 `-- --root <디렉터리>` 를 붙인다. 그 아래의 `.csv` `.tsv` `.txt` 만 고를 수 있다
+- **작업 폴더의 `.gitignore` 에 `csv_files/` 를 넣는다** — 안 넣으면 실데이터가 커밋된다
 - 첫 페이지는 바로 뜨고, 나머지 페이지는 백그라운드 인덱싱이 진행된 만큼 열린다
   (1GB 기준 수 초 ~ 수십 초, 따옴표 안 줄바꿈이 많을수록 느리다)
 - 화면에는 실데이터가 그대로 보인다. 화면 캡처·복사본을 밖으로 가져가지 않는다

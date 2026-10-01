@@ -68,3 +68,17 @@ def test_empty_and_header_only_files_do_not_crash(app):
     assert "빈 파일" in app.info[0].value
     _open(app, "header_only.csv")
     assert any("데이터 행이 없습니다" in i.value for i in app.info)
+
+
+def test_without_root_it_uses_csv_files_in_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["app.py"])
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.run()
+    assert (tmp_path / "csv_files").is_dir()            # 처음 실행이면 만들어 둔다
+    assert "파일이 없습니다" in at.info[0].value
+
+    (tmp_path / "csv_files" / "a.csv").write_text("x,y\n1,2\n")
+    at.run()
+    _open(at, "a.csv")
+    assert len(at.dataframe[0].value) == 1

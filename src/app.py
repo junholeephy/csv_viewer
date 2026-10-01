@@ -1,6 +1,10 @@
 """CSV 뷰어 화면.
 
-    streamlit run src/app.py --server.address localhost -- --root <디렉터리>
+    streamlit run src/app.py                      # ./csv_files 의 파일을 본다
+    streamlit run src/app.py -- --root <디렉터리>  # 다른 폴더를 볼 때
+
+상대 경로는 실행한 위치(cwd) 기준이다. 접속 주소는 .streamlit/config.toml 에서
+localhost 로 묶는다 — 그 파일도 cwd 기준으로 읽힌다.
 
 여기는 위젯 배치와 세션 상태만 다룬다. 파일을 읽는 것은 core.load, 인덱싱은
 core.viewer.jobs, 표·요약은 core.viewer.present 다 — 그쪽은 Streamlit 없이 테스트된다.
@@ -26,11 +30,13 @@ AUTO = "자동 감지"
 PAGE_SIZES = (50, 100, 500)
 DELIMITER_LABELS = {",": "쉼표 ,", "\t": "탭 \\t", ";": "세미콜론 ;", "|": "파이프 |"}
 TABLE_HEIGHT = 640
+DEFAULT_ROOT = "csv_files"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     ap = argparse.ArgumentParser(prog="app.py", description="CSV 뷰어")
-    ap.add_argument("--root", default=".", help="파일을 고를 디렉터리 (기본: 현재 디렉터리)")
+    ap.add_argument("--root", default=DEFAULT_ROOT,
+                    help=f"파일을 고를 디렉터리 (기본: ./{DEFAULT_ROOT})")
     return ap.parse_known_args(argv)[0]
 
 
@@ -84,7 +90,7 @@ def sidebar(root: Path) -> tuple[str | None, str, str, int, bool]:
         st.caption(f"root: `{root}`")
         choices = files.list_data_files(root)
         if not choices:
-            st.info("root 아래에 .csv / .tsv / .txt 파일이 없습니다.")
+            st.info(f"`{root}` 에 .csv / .tsv / .txt 파일이 없습니다. 파일을 넣고 새로고침하세요.")
             st.stop()
         rel = st.selectbox("파일", choices, index=None, placeholder="파일을 고르세요",
                            key="file", on_change=_reset_page)
@@ -188,6 +194,8 @@ def main() -> None:
     st.set_page_config(page_title="CSV Viewer", page_icon="📄", layout="wide")
     args = parse_args(sys.argv[1:])
     root = Path(args.root).expanduser().resolve()
+    if args.root == DEFAULT_ROOT and not root.exists():
+        root.mkdir()                              # 처음 실행 — 넣을 자리를 만들어 둔다
     if not root.is_dir():
         st.error(f"--root 가 디렉터리가 아닙니다: {root}")
         st.stop()

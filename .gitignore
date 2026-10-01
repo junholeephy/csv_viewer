@@ -33,3 +33,6 @@ venv/
 
 # 세션 상태
 .omc/
+
+# 뷰어 기본 데이터 폴더 (streamlit run src/app.py 가 보는 곳)
+csv_files/

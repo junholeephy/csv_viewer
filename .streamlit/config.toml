@@ -1,0 +1,9 @@
+# streamlit run 을 실행한 위치(cwd)에 이 파일이 있을 때 적용된다.
+
+[server]
+# 이 컴퓨터에서만 접속한다. 화면에 실데이터가 그대로 보이기 때문이다.
+address = "localhost"
+port = 8501
+
+[browser]
+gatherUsageStats = false
