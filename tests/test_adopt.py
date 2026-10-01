@@ -1,0 +1,112 @@
+"""scripts/adopt.sh 가 실제로 쓸 수 있는 저장소를 만드는지 확인한다.
+
+복사 스크립트는 조용히 낡는다 — 스캐폴드에 파일이 하나 늘어도 목록에 안 넣으면
+아무도 모른다. 그래서 설명하지 말고 **돌려서 결과를 검사한다.**
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+ADOPT = ROOT / "scripts" / "adopt.sh"
+
+pytestmark = pytest.mark.skipif(not ADOPT.exists(), reason="이식된 사본이다 (adopt.sh 없음)")
+
+
+@pytest.fixture(scope="module")
+def adopted(tmp_path_factory) -> Path:
+    dest = tmp_path_factory.mktemp("adopt") / "rule-based-tagging"
+    got = subprocess.run(["bash", str(ADOPT), str(dest)],
+                         capture_output=True, text=True)
+    assert got.returncode == 0, got.stdout + got.stderr
+    return dest
+
+
+def test_package_defaults_to_core(adopted):
+    """이름을 안 주면 src/core 그대로 간다.
+
+    폴더 이름에서 유도하지 않는다 — 폴더 이름은 사본 위치나 작업 폴더 사정으로
+    바뀌기 쉬운데, 그때마다 패키지 이름이 따라 바뀌면 import 가 전부 흔들린다.
+    """
+    assert (adopted / "src" / "core" / "schema.py").exists()
+    assert "from core" in (adopted / "src" / "run.py").read_text(encoding="utf-8")
+
+
+def test_package_is_renamed_when_asked(tmp_path):
+    """이름을 주면 디렉터리도 import 도 함께 바꾼다."""
+    dest = tmp_path / "proj"
+    subprocess.run(["bash", str(ADOPT), str(dest), "tagging"],
+                   capture_output=True, text=True, check=True)
+    assert (dest / "src" / "tagging" / "schema.py").exists()
+    assert not (dest / "src" / "core").exists()
+    assert "core" not in (dest / "src" / "run.py").read_text(encoding="utf-8")
+
+
+def test_adopted_project_runs(adopted):
+    """스키마를 안 고쳐도 데이터 파일 없이 전 구간이 돈다."""
+    got = subprocess.run([sys.executable, "src/run.py", "--dry-run", "--rows", "200"],
+                         cwd=adopted, capture_output=True, text=True)
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert "RUN SUMMARY" in got.stdout
+
+
+def test_adopted_project_keeps_exit_code_contract(adopted):
+    """0 / 1 / 2 가 그대로 살아 있어야 실행 스크립트가 분기할 수 있다."""
+    def code(args):
+        return subprocess.run([sys.executable, "src/run.py", *args],
+                              cwd=adopted, capture_output=True, text=True).returncode
+
+    assert code(["--dry-run", "--rows", "200"]) == 0
+    assert code(["--dry-run", "--rows", "1000", "--adversarial"]) == 1
+    assert code(["--data", "없는파일.csv"]) == 2
+
+
+def test_transport_boundary_comes_along(adopted):
+    """경계 두 파일이 빠지면 데이터가 조용히 운영 환경으로 넘어간다 (규격 §2.3)."""
+    assert (adopted / ".gitattributes").exists()
+    assert (adopted / ".gitignore").exists()
+    assert "export-ignore" in (adopted / ".gitattributes").read_text(encoding="utf-8")
+
+
+def test_guide_is_written_with_the_real_package_name(adopted):
+    """사본을 받아든 쪽이 읽을 지도. <pkg> 자리표시자가 남아 있으면 안 된다."""
+    guide = (adopted / "SCAFFOLD.md").read_text(encoding="utf-8")
+    assert "src/core/pipeline.py" in guide
+    assert "<pkg>" not in guide
+
+    # 사본 폴더 이름은 clone 할 디렉터리 이름에서 온다. 작업 폴더와 같은 이름으로
+    # clone 하면 {AA}/DD/DD 처럼 중첩되어 사람이 어느 쪽인지 헷갈린다.
+    assert ".staging/app" in guide, "겹치지 않는 이름으로 clone 하라고 알려야 한다"
+    assert ".staging/rule-based-tagging" not in guide
+
+
+def test_existing_files_are_not_clobbered(tmp_path):
+    """기존 저장소에 얹는 것이 목적이다. 남의 파일을 덮으면 안 된다."""
+    dest = tmp_path / "existing"
+    dest.mkdir()
+    (dest / "requirements.txt").write_text("numpy==2.0\n", encoding="utf-8")
+
+    got = subprocess.run(["bash", str(ADOPT), str(dest), "tagging"],
+                         capture_output=True, text=True)
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert (dest / "requirements.txt").read_text(encoding="utf-8") == "numpy==2.0\n"
+    assert "requirements.txt" in got.stderr, "건너뛴 것을 알려줘야 한다"
+
+
+def test_force_overwrites(tmp_path):
+    dest = tmp_path / "existing"
+    dest.mkdir()
+    (dest / "requirements.txt").write_text("numpy==2.0\n", encoding="utf-8")
+
+    subprocess.run(["bash", str(ADOPT), str(dest), "tagging", "--force"],
+                   capture_output=True, text=True, check=True)
+    assert (dest / "requirements.txt").read_text(encoding="utf-8") != "numpy==2.0\n"
+
+
+def test_refuses_to_copy_onto_itself():
+    got = subprocess.run(["bash", str(ADOPT), str(ROOT)], capture_output=True, text=True)
+    assert got.returncode != 0
+    assert "대상이 이 저장소다" in got.stderr
