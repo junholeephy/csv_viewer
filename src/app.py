@@ -105,6 +105,54 @@ def sidebar(root: Path) -> tuple[str | None, str, str, int, bool]:
     return rel, encoding, delimiter, page_size, raw
 
 
+def _move_column(key: str, pick_key: str, front: bool) -> None:
+    ss = st.session_state
+    column = ss.get(pick_key)
+    if column is None:
+        return
+    order = [c for c in ss[key] if c != column]
+    ss[key] = [column, *order] if front else [*order, column]
+
+
+def _reset_columns(key: str, pin_key: str, columns: list[str]) -> None:
+    st.session_state[key] = list(columns)
+    st.session_state[pin_key] = 0
+
+
+def column_controls(rel: str, columns: list[str]) -> tuple[list[str], int]:
+    """표시할 컬럼·순서와 왼쪽 고정 개수. 파일마다 따로 기억한다.
+
+    표 머리글을 드래그해도 순서는 바뀌지만 페이지를 넘기면 표를 새로 그려 원래대로
+    돌아간다. 그래서 순서를 세션 상태로 들고 있는다.
+    """
+    ss = st.session_state
+    key, pin_key, pick_key = f"order::{rel}", f"pin::{rel}", f"pick::{rel}"
+    # 인코딩·구분자를 바꾸면 헤더가 달라질 수 있다 — 없어진 이름은 버린다
+    ss[key] = [c for c in ss[key] if c in columns] if key in ss else list(columns)
+    ss.setdefault(pin_key, 0)
+
+    with st.sidebar:
+        st.divider()
+        st.markdown("**컬럼 순서·표시**")
+        order = st.multiselect(
+            "컬럼 순서", columns, key=key, label_visibility="collapsed",
+            help="고른 순서대로 표에 나옵니다. 빼면 숨겨집니다. 다시 넣은 컬럼은 맨 뒤에 붙습니다.")
+        pick = st.selectbox("옮길 컬럼", order, index=None, placeholder="옮길 컬럼",
+                            key=pick_key, label_visibility="collapsed")
+        c1, c2, c3 = st.columns(3)
+        c1.button("맨 앞", key=f"front::{rel}", width="stretch", disabled=pick is None,
+                  on_click=_move_column, args=(key, pick_key, True))
+        c2.button("맨 뒤", key=f"back::{rel}", width="stretch", disabled=pick is None,
+                  on_click=_move_column, args=(key, pick_key, False))
+        c3.button("초기화", key=f"reset::{rel}", width="stretch",
+                  on_click=_reset_columns, args=(key, pin_key, columns))
+        pinned = st.number_input("왼쪽 고정 컬럼 수", min_value=0, max_value=3, step=1,
+                                 key=pin_key, help="순서상 앞에서부터 이 개수만큼 가로 스크롤해도 보이게")
+        if not order:
+            st.warning("표시할 컬럼이 없어 전체를 보여줍니다.")
+    return (order or list(columns)), int(pinned)
+
+
 @st.fragment(run_every=0.5)
 def progress_live(job: jobs.IndexJob) -> None:
     """인덱싱 중에만 그려진다. 끝나는 순간 전체를 한 번 다시 그려 내비게이션을 갱신한다."""
@@ -153,8 +201,27 @@ def pager(job: jobs.IndexJob, page_size: int) -> int:
     return ss.page_no
 
 
-def show_page(rows: list[list[str]], columns: list[str], first_row: int,
-              fmt: CsvFormat, raw: bool) -> None:
+def detail_panel(frame, position: int, order: list[str]) -> None:
+    """선택한 행의 값 전체. 표 셀은 잘려 있으므로 여기서는 원본 문자열을 그대로 보인다."""
+    short, long = present.row_detail(frame, position, order)
+    with st.container(border=True):
+        st.markdown(f"**{frame.index[position]:,}행 상세**")
+        if not short.empty:
+            st.dataframe(short, hide_index=True, width="stretch", key="detail_short")
+        for column, value in long:
+            st.caption(f"`{column}` · {len(value):,}자")
+            tall = len(value) > 1500 or value.count("\n") > 12
+            st.code(value, language=None, wrap_lines=True, height=320 if tall else "content")
+        row = frame.iloc[position]
+        for column in order:                      # 길이와 상관없이 JSON 이면 트리로도
+            parsed = present.parse_json(row[column])
+            if parsed is not None:
+                with st.expander(f"`{column}` — JSON 트리"):
+                    st.json(parsed, expanded=1)
+
+
+def show_page(rows: list[list[str]], columns: list[str], first_row: int, fmt: CsvFormat,
+              raw: bool, order: list[str], pinned: int, table_key: str) -> None:
     frame = present.to_frame(rows, columns, first_row, fmt.delimiter)
     coerced, types = present.coerce(frame, present.infer_types(frame))
 
@@ -165,27 +232,40 @@ def show_page(rows: list[list[str]], columns: list[str], first_row: int,
     if warn["decode_errors"]:
         st.warning(f"디코딩 오류 {warn['decode_errors']}건 (� 로 표시) — 사이드바에서 인코딩을 바꿔 보세요")
 
+    shown = ([present.FLAG] if present.FLAG in frame else []) + order + \
+            ([present.EXTRA] if present.EXTRA in frame else [])
+    config = {c: st.column_config.Column(pinned=True) for c in order[:pinned]}
+
     tab_table, tab_summary = st.tabs(["표", "컬럼 요약"])
     with tab_table:
         if raw:
-            st.dataframe(frame, height=TABLE_HEIGHT, width="stretch", key="table_raw")
+            data = present.truncate(frame)
         else:
-            styled = present.style(coerced, types, present.null_mask(frame))
-            st.dataframe(styled, height=TABLE_HEIGHT, width="stretch", key="table")
-        st.caption("결측 셀은 주황색 · 정렬은 열 머리글 클릭 (현재 페이지 안에서)")
+            data = present.style(present.truncate(coerced), types, present.null_mask(frame))
+        # column_order 를 주면 Streamlit 이 인덱스(원본 행 번호)를 숨긴다 — 명시해서 살린다
+        event = st.dataframe(data, height=TABLE_HEIGHT, width="stretch", column_order=shown,
+                             hide_index=False,
+                             column_config=config, on_select="rerun",
+                             selection_mode="single-row", key=table_key)
+        st.caption(f"결측 셀은 주황색 · 정렬은 열 머리글 클릭 (현재 페이지 안에서) · "
+                   f"셀은 앞 {present.CELL_LIMIT}자까지 — **행을 클릭하면 전체 내용**")
+        selected = event.selection.rows if event is not None else []
+        if selected:
+            detail_panel(frame, selected[0], order)
     with tab_summary:
         st.caption("모든 값은 **현재 페이지** 기준입니다.")
-        st.dataframe(present.summarize(frame, coerced, types), hide_index=True,
-                     width="stretch", key="summary")
-        column = st.selectbox("차트로 볼 컬럼", present.data_columns(frame), key="chart_column")
+        summary = present.summarize(frame, coerced, types)
+        summary = summary.set_index("컬럼").loc[order].reset_index()
+        st.dataframe(summary, hide_index=True, width="stretch", key="summary")
+        column = st.selectbox("차트로 볼 컬럼", order, key="chart_column")
         if column:
-            kind, data = present.chart_data(frame, coerced, types, column)
-            if data.empty:
+            kind, chart = present.chart_data(frame, coerced, types, column)
+            if chart.empty:
                 st.info("이 컬럼은 현재 페이지에 값이 없습니다.")
             elif kind == "line":
-                st.line_chart(data)
+                st.line_chart(chart)
             else:
-                st.bar_chart(data)
+                st.bar_chart(chart)
 
 
 # ── 진입 ─────────────────────────────────────────────────────────────────────
@@ -241,6 +321,7 @@ def main() -> None:
         st.info(f"헤더만 있고 데이터 행이 없습니다. 컬럼: {', '.join(columns)}")
         return
 
+    order, pinned = column_controls(rel, columns)
     page_no = pager(job, page_size)
     first_row = (page_no - 1) * page_size
     offset = job.offset_of_row(first_row)
@@ -251,7 +332,9 @@ def main() -> None:
     except (OSError, ValueError, csv.Error) as exc:  # 앱은 살려 두고 다른 페이지로 갈 수 있게
         st.error(f"페이지를 읽을 수 없습니다: {type(exc).__name__}")
         return
-    show_page(rows, columns, first_row, fmt, raw)
+    # 페이지·크기·파일·보기가 바뀌면 키가 달라져 행 선택이 풀린다
+    table_key = f"table::{rel}::{fmt.encoding}::{fmt.delimiter}::{page_size}::{first_row}::{raw}"
+    show_page(rows, columns, first_row, fmt, raw, order, pinned, table_key)
 
 
 main()

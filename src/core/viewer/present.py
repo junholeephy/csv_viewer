@@ -5,6 +5,7 @@
 표가 원본 값을 조용히 바꾸거나 숨기지 않게 한다.
 """
 
+import json
 import re
 from datetime import datetime
 
@@ -16,6 +17,8 @@ from ..schema import is_null
 FLAG = "⚠"
 EXTRA = "…extra"
 NULL_STYLE = "background-color: rgba(255, 170, 0, 0.28)"   # 라이트·다크 테마 모두에서 보이게
+CELL_LIMIT = 300        # 표 셀로 보내는 최대 글자 수. 전체는 행 상세에서 본다
+LONG_TEXT = 200         # 이보다 길거나 줄바꿈이 있으면 행 상세에서 따로 펼친다
 
 _INT = re.compile(r"[+-]?\d+")
 _FLOAT = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
@@ -214,3 +217,64 @@ def page_warnings(frame: pd.DataFrame) -> dict[str, int]:
     ragged = int(frame[FLAG].notna().sum()) if FLAG in frame else 0
     decode = sum(v.count("�") for c in frame.columns for v in frame[c] if isinstance(v, str))
     return {"ragged_rows": ragged, "decode_errors": decode}
+
+
+# ── 긴 문자열 / 행 상세 ──────────────────────────────────────────────────────
+
+def truncate(frame: pd.DataFrame, limit: int = CELL_LIMIT) -> pd.DataFrame:
+    """문자열 셀을 앞 limit 글자 + "…" 로 자른 사본.
+
+    표는 셀 폭만큼만 보여주는데도 값 전체를 브라우저로 보낸다. 긴 본문이 많은
+    페이지에서 전송량이 수십 MB 가 되므로 표에는 앞부분만 보내고, 전체는 행 상세에서
+    원본으로 보여준다. 숫자·날짜 컬럼은 건드리지 않는다.
+    """
+    out = frame.copy()
+    for column in out.columns:
+        series = out[column]
+        if series.dtype != object:
+            continue
+        if any(isinstance(v, str) and len(v) > limit for v in series):
+            out[column] = pd.Series(
+                [v[:limit] + "…" if isinstance(v, str) and len(v) > limit else v for v in series],
+                index=series.index, dtype=object)
+    return out
+
+
+def is_long(value) -> bool:
+    return isinstance(value, str) and (len(value) > LONG_TEXT or "\n" in value)
+
+
+def parse_json(value):
+    """JSON 객체·배열로 해석되면 그 값, 아니면 None. 숫자·문자열 하나짜리는 JSON 으로 치지 않는다."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or text[0] not in "[{":
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+def row_detail(frame: pd.DataFrame, position: int,
+               columns: list[str] | None = None) -> tuple[pd.DataFrame, list[tuple[str, str]]]:
+    """position 번째 행을 (짧은 값 표, [(컬럼, 긴 값)]) 으로 나눈다. 값은 자르지 않은 원본이다.
+
+    columns 를 주면 그 순서로, 없으면 frame 의 컬럼 순서로. FLAG 는 앞, EXTRA 는 뒤에 붙인다.
+    """
+    order = list(columns) if columns is not None else data_columns(frame)
+    if FLAG in frame:
+        order.insert(0, FLAG)
+    if EXTRA in frame:
+        order.append(EXTRA)
+    row = frame.iloc[position]
+    short, long = [], []
+    for column in order:
+        value = row[column]
+        if is_long(value):
+            long.append((column, value))
+        else:
+            short.append({"컬럼": column, "값": "(결측)" if is_null(value) else str(value)})
+    return pd.DataFrame(short, columns=["컬럼", "값"]), long

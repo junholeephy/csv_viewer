@@ -192,3 +192,35 @@
 **Context**: CONSTRUCTION - Build and Test complete; Operations is placeholder
 
 ---
+
+## Change Request 1 - Initial Request
+**Timestamp**: 2026-10-12T00:53:25Z
+**User Input**: "긴 텍스트 행 클릭 상세 패널 추가해줘. 그리고 컬럼 순서 바꿀수 있는 기능도 추가해줘"
+**AI Response**: "Resumed existing AI-DLC project (brownfield, artifacts current). Enhancement within existing unit csv-viewer. Requirements Analysis (minimal): created inception/requirements/cr1-questions.md with 3 questions (detail panel trigger, long-cell truncation, column ordering mechanism). Checked streamlit 1.64 st.dataframe: supports column_order, on_select/selection_mode, column_config pinned; UI drag-reorder exists but resets on rerender."
+**Context**: INCEPTION - Requirements Analysis (CR1)
+
+---
+
+## Change Request 1 - Answers and Plan
+**Timestamp**: 2026-10-12T00:54:54Z
+**User Input**: "추천대로"
+**AI Response**: "All 3 CR1 answers = A. Appended FR-12..14, NFR-8 to requirements.md. Created construction/plans/csv-viewer-cr1-code-generation-plan.md (4 steps). Workflow for CR1: Requirements (minimal) -> Code Generation -> Build and Test; Application/Functional/NFR design skipped (changes within existing components, no new components). Plan is a direct transcription of the approved answers; proceeding to generation."
+**Context**: CR1 - Requirements approved, Code Generation start
+
+---
+
+## Change Request 1 - Code Generation and Build/Test Complete
+**Timestamp**: 2026-10-12T00:58:02Z
+**User Input**: "(none)"
+**AI Response**: "Implemented FR-12..14. 103 passed / 9 skipped. Found+fixed: index hidden by column_order (hide_index=False), JSON tree missing for short values. long_text 500-row payload 15.1MB -> 0.34MB. Server smoke on :8599 health ok. Not committed; awaiting user decision on commit/push/tag."
+**Context**: CR1 - Code Generation + Build and Test complete (2-option gate: Request Changes / Continue)
+
+---
+
+## Change Request 1 - Approval
+**Timestamp**: 2026-10-12T00:58:45Z
+**User Input**: "continue to next stage"
+**AI Response**: "CR1 approved. Committing, pushing main, tagging v0.3 (preflight before tag push)."
+**Context**: CR1 complete - release v0.3
+
+---

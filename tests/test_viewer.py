@@ -154,3 +154,38 @@ def test_row_zero_is_data_start_even_without_data_rows(tmp_path):
     job.start()
     job.join(10)
     assert job.offset_of_row(0) == 4 and job.last_reachable_page(100) == 0
+
+
+# ── 긴 문자열 / 행 상세 (CR1) ─────────────────────────────────────────────────
+
+def test_truncate_cuts_only_long_strings():
+    frame = present.to_frame([["1", "x" * 400, "short"]], ["n", "body", "s"], 0)
+    coerced, _ = present.coerce(frame, present.infer_types(frame))
+    cut = present.truncate(coerced, limit=300)
+    assert cut.loc[1, "body"] == "x" * 300 + "…"
+    assert cut.loc[1, "s"] == "short" and cut.loc[1, "n"] == 1
+    assert frame.loc[1, "body"] == "x" * 400                  # 원본은 그대로
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("a" * 201, True), ("line1\nline2", True), ("a" * 200, False), (None, False),
+])
+def test_is_long(value, expected):
+    assert present.is_long(value) is expected
+
+
+@pytest.mark.parametrize("value, expected", [
+    ('{"a": [1, 2]}', {"a": [1, 2]}), (" [1, 2] ", [1, 2]),
+    ("3", None), ('"text"', None), ("{broken", None), (None, None),
+])
+def test_parse_json(value, expected):
+    assert present.parse_json(value) == expected
+
+
+def test_row_detail_splits_short_and_long_in_given_order():
+    body = "첫 줄\n" + "가" * 300
+    frame = present.to_frame([["1", body, "NA", "extra1", "extra2"]], ["id", "body", "memo"], 9)
+    short, long = present.row_detail(frame, 0, ["memo", "id", "body"])
+    assert short["컬럼"].tolist() == [present.FLAG, "memo", "id", present.EXTRA]
+    assert short["값"].tolist() == ["열 5/3", "(결측)", "1", "extra1,extra2"]
+    assert long == [("body", body)]                           # 잘리지 않은 원본

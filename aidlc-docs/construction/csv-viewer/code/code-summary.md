@@ -32,3 +32,12 @@
 - 디코딩 오류 수 = 페이지 내 U+FFFD 개수 (원본에 그 문자가 있으면 과대).
 - 타입 추론·요약·차트는 현재 페이지 기준.
 - `data-testid` 규칙은 Streamlit 에서 직접 지정 불가 → 모든 위젯에 고정 `key` 부여(`file`, `encoding`, `delimiter`, `page_size`, `raw`, `page_no`, `nav_first|prev|next|last`, `table`, `summary`, `chart_column`).
+
+---
+
+## Change Request 1 (2026-10-12)
+- **Modified** `src/core/viewer/present.py`: `CELL_LIMIT`, `LONG_TEXT`, `truncate`, `is_long`, `parse_json`, `row_detail`
+- **Modified** `src/app.py`: `column_controls` (sidebar multiselect + move front/back + reset + pin count, per-file state), `detail_panel`, single-row selection on table, `column_order`/`column_config(pinned)`, summary/chart follow order
+- **Tests**: +4 example groups (`test_viewer.py`), TP-9 truncate PBT, +2 AppTest scenarios (detail panel via selection state, column order/pin/hide across pages)
+- **Found during testing**: `column_order` makes Streamlit hide the index (original row numbers) → fixed with `hide_index=False`, guarded by AppTest. Short JSON values originally got no tree view (FR-12 gap) → tree for any JSON value.
+- **Measured**: long_text 500-row page table payload 15.1MB → 0.34MB; detail panel renders 1MB value in 0.18s (AppTest).

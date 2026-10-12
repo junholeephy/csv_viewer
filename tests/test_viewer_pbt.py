@@ -105,3 +105,15 @@ def test_resolve_within_never_escapes(parts):
     except ValueError:
         return
     assert resolved.is_relative_to(root.resolve())
+
+
+# TP-9 불변식: truncate 는 limit 이하 문자열을 건드리지 않고, 긴 문자열은 앞부분을 보존해 limit+1 자로 만든다
+@given(st.lists(st.text(max_size=60), min_size=1, max_size=20), st.integers(1, 40))
+def test_truncate_keeps_prefix_and_bounds_length(values, limit):
+    frame = present.to_frame([[v] for v in values], ["c"], 0)
+    cut = present.truncate(frame, limit)
+    for original, shown in zip(frame["c"], cut["c"]):
+        if len(original) <= limit:
+            assert shown == original
+        else:
+            assert shown == original[:limit] + "…" and len(shown) == limit + 1

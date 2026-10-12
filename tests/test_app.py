@@ -1,5 +1,6 @@
 """화면 스모크 — Streamlit AppTest 로 실제 스크립트를 돌린다 (브라우저 없음)."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -18,6 +19,8 @@ def app(tmp_path, monkeypatch):
         + "".join(f"{i},n{i},{'' if i % 7 == 0 else i / 4},2024-01-{i % 28 + 1:02d}\n"
                   for i in range(1, 251)))
     (tmp_path / "empty.csv").write_text("")
+    (tmp_path / "long.csv").write_text(
+        'id,body,js\n1,"' + "x" * 600 + '\nline2","{""a"": [1, 2]}"\n2,short,NA\n')
     (tmp_path / "header_only.csv").write_text("a,b\n")
     monkeypatch.setattr(sys, "argv", ["app.py", "--root", str(tmp_path)])
     at = AppTest.from_file(APP, default_timeout=30)
@@ -82,3 +85,44 @@ def test_without_root_it_uses_csv_files_in_cwd(tmp_path, monkeypatch):
     at.run()
     _open(at, "a.csv")
     assert len(at.dataframe[0].value) == 1
+
+
+def _table_key(name, first_row=0, size=100):
+    return f"table::{name}::utf-8-sig::,::{size}::{first_row}::False"
+
+
+def test_row_click_opens_detail_with_full_text(app):
+    _open(app, "long.csv")
+    assert len(app.dataframe[0].value.loc[1, "body"]) == 301          # 표 셀은 잘려 있다
+    assert not any("상세" in m.value for m in app.markdown)
+
+    app.session_state[_table_key("long.csv")] = {"selection": {"rows": [0], "columns": [], "cells": []}}
+    app.run()
+    assert not app.exception
+    assert any(m.value == "**1행 상세**" for m in app.markdown)
+    assert [len(c.value) for c in app.code] == [606]                  # 전체 본문
+    assert len(app.json) == 1                                          # 짧은 JSON 도 트리로
+
+
+def test_column_order_pin_and_hide_survive_paging(app):
+    _open(app, "big.csv")
+    app.session_state["job"].join(10)
+    app.run()
+    app.multiselect(key="order::big.csv").set_value(["score", "id"]).run()  # name·day 숨김
+    app.number_input(key="pin::big.csv").set_value(1).run()
+    table = app.dataframe[0].proto
+    assert list(table.column_order) == ["score", "id"]
+    config = json.loads(table.columns)
+    assert config["score"] == {"pinned": True}
+    assert not config.get("_index", {}).get("hidden"), "원본 행 번호가 사라졌다"
+
+    app.button(key="nav_next").click().run()
+    assert list(app.dataframe[0].proto.column_order) == ["score", "id"]
+    assert app.selectbox(key="chart_column").options == ["score", "id"]
+
+    app.selectbox(key="pick::big.csv").select("id").run()
+    app.button(key="front::big.csv").click().run()
+    assert list(app.dataframe[0].proto.column_order) == ["id", "score"]
+
+    app.button(key="reset::big.csv").click().run()
+    assert list(app.dataframe[0].proto.column_order) == ["id", "name", "score", "day"]

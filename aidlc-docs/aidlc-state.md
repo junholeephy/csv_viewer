@@ -54,7 +54,7 @@
 - [ ] Operations - PLACEHOLDER
 
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION complete
-- **Current Stage**: Build and Test complete
-- **Next Stage**: Operations (placeholder)
-- **Status**: Working Streamlit server delivered
+- **Lifecycle Phase**: CONSTRUCTION (Change Request 1)
+- **Current Stage**: CR1 released as v0.3
+- **Next Stage**: commit / release
+- **Status**: v0.2 released; CR1 = row detail panel + column ordering
